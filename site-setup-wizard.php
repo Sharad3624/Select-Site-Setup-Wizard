@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Site Setup Wizard
  * Description: One-time first-run wizard: install a theme, wipe default content, install a fixed plugin stack, and configure Elementor's global layout/breakpoints.
- * Version: 1.2.0
- * Author: Site Setup Wizard
+ * Version: 1.2.1
+ * Author: Sharad Gupta
  * Requires PHP: 7.4
  */
 
