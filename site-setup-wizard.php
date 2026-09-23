@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Site Setup Wizard
  * Description: One-time first-run wizard: install a theme, wipe default content, install a fixed plugin stack, and configure Elementor's global layout/breakpoints.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Site Setup Wizard
  * Requires PHP: 7.4
  */
@@ -330,8 +330,8 @@ function ssw_render_page() {
 		   matches WP core's own .wp-core-ui .button .dashicons rule - without
 		   it the glyph's line box (inherited from the button's own line-height)
 		   still pushes it a few px off vertical-center even inside a flex row. */
-		.ssw-wrap .button { display: inline-flex; align-items: center; justify-content: center; gap: .4em; }
-		.ssw-wrap .button .dashicons { flex-shrink: 0; line-height: 1; }
+		.ssw-wrap .button { display: inline-flex !important; align-items: center !important; justify-content: center !important; gap: .4em; }
+		.ssw-wrap .button .dashicons { flex-shrink: 0; line-height: 1 !important; vertical-align: middle; }
 
 		/* Fields */
 		.ssw-field { margin: 0 0 1em; }
