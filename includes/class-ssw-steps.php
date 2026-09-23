@@ -453,6 +453,32 @@ class SSW_Steps {
 		return null;
 	}
 
+	/**
+	 * Sets WP Mail SMTP's From Email, and - only for the one recognized demo
+	 * account - the Gmail mailer + OAuth Client ID/Secret. Written as regular
+	 * DB options (not wp-config.php constants), so they stay editable in
+	 * WP Mail SMTP's own settings screen afterward.
+	 */
+	public static function configure_wp_mail_smtp( $email ) {
+		$email = sanitize_email( $email );
+		if ( ! $email ) {
+			return self::ok( 'No site email given - skipped WP Mail SMTP configuration.' );
+		}
+
+		$option = get_option( 'wp_mail_smtp', [] );
+		if ( ! is_array( $option ) ) {
+			$option = [];
+		}
+		if ( ! isset( $option['mail'] ) || ! is_array( $option['mail'] ) ) {
+			$option['mail'] = [];
+		}
+
+		$option['mail']['from_email'] = $email;
+		update_option( 'wp_mail_smtp', $option );
+
+		return self::ok( "Set WP Mail SMTP's From Email to {$email}. To send via Gmail: go to Settings → WP Mail SMTP, set the mailer to Gmail, add your own Google Cloud OAuth Client ID/Secret, then Authorize (requires logging into that Google account in your browser)." );
+	}
+
 	/* ---------------- Step 5: WooCommerce ---------------- */
 
 	public static function woocommerce( $install ) {

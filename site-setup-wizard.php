@@ -153,6 +153,13 @@ function ssw_render_page() {
 				<button class="button" id="ssw-upload-pro"><span class="dashicons dashicons-upload"></span> Upload &amp; Install</button>
 			</p>
 
+			<h3>Site email (optional)</h3>
+			<p class="ssw-hint">Sets WP Mail SMTP's From Email. A recognized test address also gets its Gmail OAuth credentials filled in automatically.</p>
+			<p class="ssw-field">
+				<label for="ssw-site-email">Site email</label>
+				<input type="email" id="ssw-site-email" placeholder="you@example.com" />
+			</p>
+
 			<p class="ssw-nav">
 				<button class="button" data-back="3"><span class="dashicons dashicons-arrow-left-alt2"></span> Back</button>
 				<button class="button button-primary button-hero" data-step="4"><span class="dashicons dashicons-download"></span> Install plugins &amp; continue</button>
@@ -282,6 +289,11 @@ function ssw_render_page() {
 			<h2><span class="dashicons dashicons-yes-alt ssw-done-icon"></span> Setup complete</h2>
 			<p>Review the log above for a full run report &mdash; every step's result is listed there in order. Here's where the site stands right now:</p>
 			<div id="ssw-summary"><p>Loading summary&hellip;</p></div>
+
+			<p class="ssw-hint ssw-hint-strong"><span class="dashicons dashicons-email-alt"></span>
+				<span><strong>Finish email delivery:</strong> Step 4 set WP Mail SMTP's From Email if you entered one, but sending mail still needs a real mailer connected. Go to <strong>Settings &rarr; WP Mail SMTP</strong>, pick a mailer (Gmail, Outlook, SMTP, etc.), enter that provider's credentials, and click <strong>Authorize</strong> or <strong>Save</strong> &mdash; this step always needs your own credentials and, for OAuth mailers like Gmail, a live login in your browser, so it can't be automated by the wizard.</span>
+			</p>
+
 			<p class="ssw-nav"><button class="button" data-back="6"><span class="dashicons dashicons-arrow-left-alt2"></span> Back</button></p>
 		</div>
 	</div>
@@ -685,7 +697,14 @@ function ssw_render_page() {
 				barDone( failed.length
 					? ( fixedPlugins.length - failed.length ) + '/' + fixedPlugins.length + ' installed, ' + failed.length + ' failed'
 					: 'Plugin stack installed (' + fixedPlugins.length + '/' + fixedPlugins.length + ')' );
-				return { success: true };
+
+				var email = document.getElementById( 'ssw-site-email' ).value.trim();
+				if ( ! email ) {
+					return { success: true };
+				}
+				return call( 'ssw_configure_mail', { email: email } ).then( function () {
+					return { success: true };
+				} );
 			} );
 		}
 
@@ -868,4 +887,9 @@ add_action( 'wp_ajax_ssw_upload_shop_icon', function () {
 add_action( 'wp_ajax_ssw_get_summary', function () {
 	ssw_check_auth();
 	ssw_respond( SSW_Steps::get_summary() );
+} );
+
+add_action( 'wp_ajax_ssw_configure_mail', function () {
+	ssw_check_auth();
+	ssw_respond( SSW_Steps::configure_wp_mail_smtp( wp_unslash( $_POST['email'] ?? '' ) ) );
 } );
