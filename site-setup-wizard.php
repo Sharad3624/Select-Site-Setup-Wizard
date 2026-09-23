@@ -326,9 +326,12 @@ function ssw_render_page() {
 		.ssw-nav { margin-top: 1.75em; display: flex; gap: .6em; flex-wrap: wrap; }
 
 		/* Buttons: flex so an icon + label always center on the same line,
-		   regardless of the dashicon glyph's own font metrics. */
+		   regardless of the dashicon glyph's own font metrics. line-height:1
+		   matches WP core's own .wp-core-ui .button .dashicons rule - without
+		   it the glyph's line box (inherited from the button's own line-height)
+		   still pushes it a few px off vertical-center even inside a flex row. */
 		.ssw-wrap .button { display: inline-flex; align-items: center; justify-content: center; gap: .4em; }
-		.ssw-wrap .button .dashicons { flex-shrink: 0; }
+		.ssw-wrap .button .dashicons { flex-shrink: 0; line-height: 1; }
 
 		/* Fields */
 		.ssw-field { margin: 0 0 1em; }
