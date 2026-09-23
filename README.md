@@ -64,6 +64,8 @@ Elementor, WP Mail SMTP, Yoast SEO, Duplicate Page, Secure Custom Fields, Permal
 ### Step 5 — WooCommerce
 Yes installs and activates WooCommerce from wordpress.org; No skips it. Either way the wizard continues to Step 6.
 
+If you install WooCommerce, the wizard also wires shop support into the **active theme**: `add_theme_support('woocommerce')`, a grid/list view toggle above the product loop (replacing the default result-count/ordering row), and a `[ssw_category_sidebar]` shortcode for a nested product-category list — drop that into an Elementor Shortcode widget inside an Archive Products sidebar. This step's panel also has optional SVG upload fields for the grid/list toggle icons (falls back to WordPress's own Dashicons if you don't upload any); the shortcode is shown in a copyable callout once WooCommerce activates.
+
 ### Step 6 — Elementor site settings
 - **Identity**: either fill in site title / tagline / logo (applied to both WordPress core options and Elementor's active Kit), or check the box to install & use [Identity Mirror](https://github.com/Sharad3624/Identity-Mirror) instead.
 - **Breakpoints**: two ready-made presets (7-tier with Widescreen, or 6-tier without) or fully custom values per device. Applied to the active Elementor Kit's `viewport_*` settings, with Elementor's "Additional Custom Breakpoints" experiment enabled automatically as needed.
@@ -100,6 +102,9 @@ chmod -R g+w wp-content/upgrade wp-content/plugins wp-content/themes wp-content/
 **Header/Footer Theme Builder templates don't show up on the front end.**
 This requires Elementor Pro/ProElements *and* a theme that either natively supports Elementor's theme-builder hooks (e.g. Hello Elementor) or gets patched by Pro's own compatibility shim. A freshly generated `_s`/underscores.me theme has no built-in awareness of Elementor at all; if the header/footer don't appear after Step 6, try switching to the Hello Elementor theme.
 
+**Every URL 404s (or resolves to something with "indexphp", no dot, in it) after installing Permalink Manager.**
+Step 2 already switches the site to a clean `/%postname%/` permalink structure and writes `.htaccess` before Step 4 installs Permalink Manager, specifically to prevent this. If you still hit it — e.g. you ran Step 4/5 out of order, or re-ran the wizard on a site that already had this problem once — Permalink Manager caches every URL it generates in the `permalink-manager-uris` option, keyed by post ID, and that cache is **not** cleared by deactivating or even deleting the plugin. Step 2 now also clears that option on every run, but if you hit this outside the wizard: `wp option delete permalink-manager-uris` (or delete it via a database tool), then reload the affected page.
+
 ## Security notes
 
 - Every AJAX action requires both a valid nonce and `manage_options` — none are registered for logged-out users.
@@ -112,8 +117,12 @@ This requires Elementor Pro/ProElements *and* a theme that either natively suppo
 
 ```
 site-setup-wizard/
-├── site-setup-wizard.php        # Bootstrap, admin page (HTML/CSS/JS), AJAX routing
+├── site-setup-wizard.php          # Bootstrap, admin page (HTML/CSS/JS), AJAX routing
 ├── includes/
-│   └── class-ssw-steps.php      # All step logic (SSW_Steps class)
+│   ├── class-ssw-steps.php        # All step logic (SSW_Steps class)
+│   └── theme-templates/           # Copied into the active theme's inc/ when WooCommerce installs
+│       ├── global-functions.php   # WooCommerce support, shop topbar, [ssw_category_sidebar]
+│       ├── shop-archive.css
+│       └── shop-archive.js
 └── README.md
 ```

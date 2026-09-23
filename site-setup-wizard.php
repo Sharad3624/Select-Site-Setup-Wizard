@@ -49,7 +49,22 @@ function ssw_render_page() {
 	if ( is_multisite() ) {
 		wp_die( 'Site Setup Wizard is not supported on multisite: it wipes and reinstalls the whole plugins directory, which is shared network-wide, and that needs network-admin capabilities this page does not check for.' );
 	}
-	$nonce = wp_create_nonce( 'ssw_nonce' );
+	$nonce   = wp_create_nonce( 'ssw_nonce' );
+	$current = SSW_Steps::get_current_kit_settings();
+	$bp      = $current['breakpoints'] ?? [];
+	$bp_mode = $current['breakpoint_mode'] ?? 'preset1';
+	$cw      = $current['container_width'] ?? [];
+	$pad     = $current['padding'] ?? [];
+	$identity_mirror_active = SSW_Steps::is_identity_mirror_active();
+
+	// Custom-breakpoint fields fall back to preset1's numbers when nothing is
+	// saved yet, purely as sane starting points to edit from.
+	$bp_defaults = SSW_Steps::BREAKPOINT_PRESETS['preset1'];
+	foreach ( $bp_defaults as $key => $default ) {
+		if ( ! isset( $bp[ $key ] ) || null === $bp[ $key ] ) {
+			$bp[ $key ] = $default;
+		}
+	}
 	?>
 	<div class="wrap ssw-wrap">
 		<h1><span class="dashicons dashicons-admin-generic"></span> Site Setup Wizard</h1>
@@ -67,6 +82,15 @@ function ssw_render_page() {
 		<div id="ssw-bar-wrap" class="ssw-bar-wrap" style="display:none;">
 			<div class="ssw-bar"><div id="ssw-bar-fill" class="ssw-bar-fill"></div></div>
 			<p id="ssw-bar-label" class="ssw-bar-label"></p>
+		</div>
+
+		<div id="ssw-shortcode-box" class="ssw-hint-strong" style="display:none;">
+			<span class="dashicons dashicons-cart"></span>
+			<span>
+				WooCommerce is active. Drop this shortcode into an Elementor Shortcode widget (e.g. in an Archive Products sidebar) to show the product category list:
+				<code id="ssw-shortcode-text">[ssw_category_sidebar]</code>
+				<button type="button" class="button button-small" id="ssw-copy-shortcode">Copy</button>
+			</span>
 		</div>
 
 		<div id="ssw-log" class="ssw-log" aria-live="polite"></div>
@@ -98,6 +122,7 @@ function ssw_render_page() {
 			<p class="ssw-nav">
 				<button class="button" data-back="1"><span class="dashicons dashicons-arrow-left-alt2"></span> Back</button>
 				<button class="button button-primary button-hero" data-step="2" id="ssw-run-step2" disabled><span class="dashicons dashicons-trash"></span> Delete &amp; continue</button>
+				<button class="button" id="ssw-skip-step2">Skip this step <span class="dashicons dashicons-arrow-right-alt2"></span></button>
 			</p>
 		</div>
 
@@ -131,6 +156,7 @@ function ssw_render_page() {
 			<p class="ssw-nav">
 				<button class="button" data-back="3"><span class="dashicons dashicons-arrow-left-alt2"></span> Back</button>
 				<button class="button button-primary button-hero" data-step="4"><span class="dashicons dashicons-download"></span> Install plugins &amp; continue</button>
+				<button class="button" id="ssw-retry-step4" style="display:none;"><span class="dashicons dashicons-update"></span> Retry failed</button>
 			</p>
 		</div>
 
@@ -146,6 +172,22 @@ function ssw_render_page() {
 					<span><span class="ssw-option-title">No</span><span class="ssw-option-desc">Skip &mdash; this isn't a store site.</span></span>
 				</label>
 			</div>
+
+			<div id="ssw-shop-icons">
+				<h3>Shop view icons (optional)</h3>
+				<p class="ssw-hint">Upload your own SVGs for the grid/list view toggle on the shop page, or leave blank to use the default icons.</p>
+				<p class="ssw-field-row">
+					<span>Grid icon</span>
+					<input type="file" id="ssw-icon-grid" accept=".svg" />
+					<button class="button" id="ssw-upload-icon-grid" data-type="grid"><span class="dashicons dashicons-upload"></span> Upload</button>
+				</p>
+				<p class="ssw-field-row">
+					<span>List icon</span>
+					<input type="file" id="ssw-icon-list" accept=".svg" />
+					<button class="button" id="ssw-upload-icon-list" data-type="list"><span class="dashicons dashicons-upload"></span> Upload</button>
+				</p>
+			</div>
+
 			<p class="ssw-nav">
 				<button class="button" data-back="4"><span class="dashicons dashicons-arrow-left-alt2"></span> Back</button>
 				<button class="button button-primary button-hero" data-step="5">Continue <span class="dashicons dashicons-arrow-right-alt2"></span></button>
@@ -155,68 +197,77 @@ function ssw_render_page() {
 		<div class="ssw-panel" data-panel="6" style="display:none;">
 			<h2><span class="dashicons dashicons-admin-customizer"></span> Step 6 &mdash; Elementor site settings</h2>
 
+			<?php if ( $current ) : ?>
+				<p class="ssw-hint ssw-hint-strong"><span class="dashicons dashicons-info-outline"></span> Elementor already has settings saved from a previous run &mdash; the fields below are pre-filled with the current values instead of the defaults.</p>
+			<?php endif; ?>
+
 			<h3>Identity</h3>
 			<label class="ssw-toggle">
-				<input type="checkbox" id="ssw-use-identity-mirror" /><span class="ssw-toggle-track"></span>
+				<input type="checkbox" id="ssw-use-identity-mirror" <?php checked( $identity_mirror_active ); ?> /><span class="ssw-toggle-track"></span>
 				<span class="ssw-toggle-text">Use the <a href="https://github.com/Sharad3624/Identity-Mirror" target="_blank" rel="noopener">Identity Mirror</a> plugin for site identity</span>
 			</label>
-			<div id="ssw-native-identity" class="ssw-field-grid" style="margin-top:1em;">
+			<div id="ssw-native-identity" class="ssw-field-grid" style="margin-top:1em;<?php echo $identity_mirror_active ? ' display:none;' : ''; ?>">
 				<p class="ssw-field"><label for="ssw-site-name">Site title</label><input type="text" id="ssw-site-name" placeholder="<?php echo esc_attr( get_bloginfo( 'name' ) ); ?>" /></p>
 				<p class="ssw-field"><label for="ssw-site-description">Tagline</label><input type="text" id="ssw-site-description" placeholder="<?php echo esc_attr( get_bloginfo( 'description' ) ); ?>" /></p>
 				<p class="ssw-field">
 					<label>Logo</label>
 					<span class="ssw-field-row">
 						<button class="button" id="ssw-pick-logo"><span class="dashicons dashicons-format-image"></span> Select logo</button>
-						<span id="ssw-logo-preview"></span>
+						<span id="ssw-logo-preview"><?php
+							$logo_id = get_theme_mod( 'custom_logo' );
+							if ( $logo_id ) {
+								echo wp_get_attachment_image( $logo_id, [ 40, 40 ], false, [ 'style' => 'height:40px;width:auto;vertical-align:middle' ] );
+							}
+						?></span>
 					</span>
-					<input type="hidden" id="ssw-logo-id" value="" />
+					<input type="hidden" id="ssw-logo-id" value="<?php echo esc_attr( $logo_id ? $logo_id : '' ); ?>" />
 				</p>
 			</div>
 
 			<h3>Layout &amp; breakpoints</h3>
 			<div class="ssw-options">
 				<label class="ssw-option-card">
-					<input type="radio" name="ssw-bp-mode" value="preset1" checked />
+					<input type="radio" name="ssw-bp-mode" value="preset1" <?php checked( $bp_mode, 'preset1' ); ?> />
 					<span><span class="ssw-option-title">Option 1 &mdash; 7 breakpoints, with Widescreen</span>
 					<span class="ssw-option-desc">Widescreen &ge;1851 &middot; Desktop 1438&ndash;1850 &middot; Laptop 1201&ndash;1438 &middot; Tablet Landscape 1025&ndash;1200 &middot; Tablet Portrait 881&ndash;1024 &middot; Mobile Landscape 768&ndash;880 &middot; Mobile Portrait 0&ndash;767</span></span>
 				</label>
 				<label class="ssw-option-card">
-					<input type="radio" name="ssw-bp-mode" value="preset2" />
+					<input type="radio" name="ssw-bp-mode" value="preset2" <?php checked( $bp_mode, 'preset2' ); ?> />
 					<span><span class="ssw-option-title">Option 2 &mdash; 6 breakpoints, no Widescreen</span>
 					<span class="ssw-option-desc">Desktop &ge;1851 &middot; Laptop 1439&ndash;1850 &middot; Tablet Landscape 1200&ndash;1438 &middot; Tablet Portrait 1024&ndash;1199 &middot; Mobile Landscape 768&ndash;1023 &middot; Mobile Portrait 0&ndash;767</span></span>
 				</label>
 				<label class="ssw-option-card">
-					<input type="radio" name="ssw-bp-mode" value="custom" />
-					<span><span class="ssw-option-title">Option 3 &mdash; Custom</span>
+					<input type="radio" name="ssw-bp-mode" value="custom" <?php checked( $bp_mode, 'custom' ); ?> />
+					<span><span class="ssw-option-title">Option 3 &mdash; Custom<?php echo 'custom' === $bp_mode ? ' (currently active)' : ''; ?></span>
 					<span class="ssw-option-desc">Set every breakpoint value yourself below.</span></span>
 				</label>
 			</div>
-			<div id="ssw-custom-bp" class="ssw-field-grid" style="display:none;">
-				<p class="ssw-field"><label>Mobile Portrait max</label><input type="number" id="ssw-bp-mobile" value="767" /></p>
-				<p class="ssw-field"><label>Mobile Landscape max</label><input type="number" id="ssw-bp-mobile_extra" value="880" /></p>
-				<p class="ssw-field"><label>Tablet Portrait max</label><input type="number" id="ssw-bp-tablet" value="1024" /></p>
-				<p class="ssw-field"><label>Tablet Landscape max</label><input type="number" id="ssw-bp-tablet_extra" value="1200" /></p>
-				<p class="ssw-field"><label>Laptop max</label><input type="number" id="ssw-bp-laptop" value="1438" /></p>
-				<p class="ssw-field"><label>Widescreen min (blank = disabled)</label><input type="number" id="ssw-bp-widescreen" value="1850" /></p>
+			<div id="ssw-custom-bp" class="ssw-field-grid" style="display:<?php echo 'custom' === $bp_mode ? 'grid' : 'none'; ?>;">
+				<p class="ssw-field"><label>Mobile Portrait max</label><input type="number" id="ssw-bp-mobile" value="<?php echo esc_attr( $bp['mobile'] ); ?>" /></p>
+				<p class="ssw-field"><label>Mobile Landscape max</label><input type="number" id="ssw-bp-mobile_extra" value="<?php echo esc_attr( $bp['mobile_extra'] ); ?>" /></p>
+				<p class="ssw-field"><label>Tablet Portrait max</label><input type="number" id="ssw-bp-tablet" value="<?php echo esc_attr( $bp['tablet'] ); ?>" /></p>
+				<p class="ssw-field"><label>Tablet Landscape max</label><input type="number" id="ssw-bp-tablet_extra" value="<?php echo esc_attr( $bp['tablet_extra'] ); ?>" /></p>
+				<p class="ssw-field"><label>Laptop max</label><input type="number" id="ssw-bp-laptop" value="<?php echo esc_attr( $bp['laptop'] ); ?>" /></p>
+				<p class="ssw-field"><label>Widescreen min (blank = disabled)</label><input type="number" id="ssw-bp-widescreen" value="<?php echo esc_attr( $bp['widescreen'] ); ?>" /></p>
 			</div>
 
 			<h3>Container width</h3>
 			<p class="ssw-hint">Default width of the content area per device. Leave the defaults or set your own per tier &mdash; any device not listed here (e.g. Tablet Portrait, Mobile Landscape) inherits the next wider tier's value.</p>
 			<div class="ssw-field-grid">
-				<p class="ssw-field"><label>Widescreen (&ge;1851px)</label><span class="ssw-field-row"><input type="number" id="ssw-cw-widescreen" value="1620" /><?php ssw_unit_select( 'ssw-cw-widescreen-unit', 'px' ); ?></span></p>
-				<p class="ssw-field"><label>Desktop (1439&ndash;1850px)</label><span class="ssw-field-row"><input type="number" id="ssw-cw-desktop" value="85" /><?php ssw_unit_select( 'ssw-cw-desktop-unit', '%' ); ?></span></p>
-				<p class="ssw-field"><label>Laptop (1201&ndash;1438px)</label><span class="ssw-field-row"><input type="number" id="ssw-cw-laptop" value="90" /><?php ssw_unit_select( 'ssw-cw-laptop-unit', '%' ); ?></span></p>
-				<p class="ssw-field"><label>Tablet Landscape down to 768px</label><span class="ssw-field-row"><input type="number" id="ssw-cw-tablet_extra" value="95" /><?php ssw_unit_select( 'ssw-cw-tablet_extra-unit', '%' ); ?></span></p>
-				<p class="ssw-field"><label>Mobile Portrait (0&ndash;767px)</label><span class="ssw-field-row"><input type="number" id="ssw-cw-mobile" value="100" /><?php ssw_unit_select( 'ssw-cw-mobile-unit', '%' ); ?></span></p>
+				<?php foreach ( [ 'widescreen' => 'Widescreen (&ge;1851px)', 'desktop' => 'Desktop (1439&ndash;1850px)', 'laptop' => 'Laptop (1201&ndash;1438px)', 'tablet_extra' => 'Tablet Landscape down to 768px', 'mobile' => 'Mobile Portrait (0&ndash;767px)' ] as $tier => $label ) :
+					$val = $cw[ $tier ] ?? SSW_Steps::CONTAINER_WIDTH_DEFAULTS[ $tier ];
+				?>
+					<p class="ssw-field"><label><?php echo $label; ?></label><span class="ssw-field-row"><input type="number" id="ssw-cw-<?php echo esc_attr( $tier ); ?>" value="<?php echo esc_attr( $val['size'] ); ?>" /><?php ssw_unit_select( "ssw-cw-{$tier}-unit", $val['unit'] ); ?></span></p>
+				<?php endforeach; ?>
 			</div>
 
 			<h3>Default container padding</h3>
 			<div class="ssw-field-grid">
-				<p class="ssw-field"><label>Top</label><input type="number" id="ssw-pad-top" value="10" /></p>
-				<p class="ssw-field"><label>Right</label><input type="number" id="ssw-pad-right" value="10" /></p>
-				<p class="ssw-field"><label>Bottom</label><input type="number" id="ssw-pad-bottom" value="10" /></p>
-				<p class="ssw-field"><label>Left</label><input type="number" id="ssw-pad-left" value="10" /></p>
-				<p class="ssw-field"><label>Unit</label><?php ssw_unit_select( 'ssw-pad-unit', 'px' ); ?></p>
+				<p class="ssw-field"><label>Top</label><input type="number" id="ssw-pad-top" value="<?php echo esc_attr( $pad['top'] ?? 10 ); ?>" /></p>
+				<p class="ssw-field"><label>Right</label><input type="number" id="ssw-pad-right" value="<?php echo esc_attr( $pad['right'] ?? 10 ); ?>" /></p>
+				<p class="ssw-field"><label>Bottom</label><input type="number" id="ssw-pad-bottom" value="<?php echo esc_attr( $pad['bottom'] ?? 10 ); ?>" /></p>
+				<p class="ssw-field"><label>Left</label><input type="number" id="ssw-pad-left" value="<?php echo esc_attr( $pad['left'] ?? 10 ); ?>" /></p>
+				<p class="ssw-field"><label>Unit</label><?php ssw_unit_select( 'ssw-pad-unit', $pad['unit'] ?? 'px' ); ?></p>
 			</div>
 
 			<p class="ssw-hint ssw-hint-strong"><span class="dashicons dashicons-info-outline"></span> Default page layout will be set to Elementor Full Width, and blank Header/Footer Theme Builder templates will be created automatically.</p>
@@ -229,7 +280,8 @@ function ssw_render_page() {
 
 		<div class="ssw-panel" data-panel="7" style="display:none;">
 			<h2><span class="dashicons dashicons-yes-alt ssw-done-icon"></span> Setup complete</h2>
-			<p>Review the log above for a full run report &mdash; every step's result is listed there in order.</p>
+			<p>Review the log above for a full run report &mdash; every step's result is listed there in order. Here's where the site stands right now:</p>
+			<div id="ssw-summary"><p>Loading summary&hellip;</p></div>
 			<p class="ssw-nav"><button class="button" data-back="6"><span class="dashicons dashicons-arrow-left-alt2"></span> Back</button></p>
 		</div>
 	</div>
@@ -259,9 +311,12 @@ function ssw_render_page() {
 		.ssw-panel { background: #fff; border: 1px solid var(--ssw-border); border-radius: 10px; padding: 1.75em 2em; margin-top: 1.25em; max-width: 820px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
 		.ssw-panel.is-active { animation: ssw-panel-in .3s ease; }
 		@keyframes ssw-panel-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-		.ssw-nav { margin-top: 1.75em; display: flex; gap: .6em; }
-		.ssw-nav .dashicons { vertical-align: middle; }
-		.button-hero .dashicons { margin-top: 2px; }
+		.ssw-nav { margin-top: 1.75em; display: flex; gap: .6em; flex-wrap: wrap; }
+
+		/* Buttons: flex so an icon + label always center on the same line,
+		   regardless of the dashicon glyph's own font metrics. */
+		.ssw-wrap .button { display: inline-flex; align-items: center; justify-content: center; gap: .4em; }
+		.ssw-wrap .button .dashicons { flex-shrink: 0; }
 
 		/* Fields */
 		.ssw-field { margin: 0 0 1em; }
@@ -272,6 +327,11 @@ function ssw_render_page() {
 		.ssw-field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .5em 1.5em; }
 		.ssw-hint { color: var(--ssw-muted); font-size: 13px; }
 		.ssw-hint-strong { background: #f0f6fc; border-left: 3px solid var(--ssw-accent); padding: .75em 1em; border-radius: 0 6px 6px 0; display: flex; gap: .5em; align-items: flex-start; }
+		#ssw-shortcode-box { max-width: 820px; margin-bottom: 1em; }
+		#ssw-shortcode-text { background: #fff; border: 1px solid var(--ssw-border); border-radius: 4px; padding: .2em .5em; margin: 0 .5em; }
+		.ssw-summary-table { border-collapse: collapse; margin: 1em 0; }
+		.ssw-summary-table th, .ssw-summary-table td { text-align: left; padding: .5em 1.5em .5em 0; border-bottom: 1px solid var(--ssw-border); }
+		.ssw-summary-table th { color: var(--ssw-muted); font-weight: 600; font-size: 13px; }
 
 		/* Warning */
 		.ssw-warning { background: #fcf0f1; border-left: 4px solid var(--ssw-red); padding: .9em 1.1em; border-radius: 0 6px 6px 0; display: flex; gap: .6em; align-items: flex-start; margin-bottom: 1.25em; }
@@ -324,6 +384,7 @@ function ssw_render_page() {
 	<script>
 	( function () {
 		var ajaxurl = window.ajaxurl;
+		var adminUrl = <?php echo wp_json_encode( admin_url() ); ?>;
 		var nonce = <?php echo wp_json_encode( $nonce ); ?>;
 		var fixedPlugins = <?php echo wp_json_encode( array_keys( SSW_Steps::FIXED_PLUGINS ) ); ?>;
 		var log = document.getElementById( 'ssw-log' );
@@ -369,6 +430,51 @@ function ssw_render_page() {
 				dot.innerHTML = i < n ? '<span class="dashicons dashicons-yes"></span>' : i;
 			} );
 			window.scrollTo( { top: document.querySelector( '.ssw-stepper' ).offsetTop - 40, behavior: 'smooth' } );
+			if ( 7 === n ) {
+				loadSummary();
+			}
+		}
+
+		function loadSummary() {
+			var box = document.getElementById( 'ssw-summary' );
+			box.innerHTML = '<p>Loading summary&hellip;</p>';
+			var body = new FormData();
+			body.append( 'action', 'ssw_get_summary' );
+			body.append( 'nonce', nonce );
+			fetch( ajaxurl, { method: 'POST', credentials: 'same-origin', body: body } )
+				.then( function ( r ) { return r.json(); } )
+				.then( function ( json ) {
+					if ( ! json || ! json.success ) {
+						box.innerHTML = '<p>Could not load the summary.</p>';
+						return;
+					}
+					var d = json.data.details || {};
+					var rows = [
+						[ 'Site', d.site_name ],
+						[ 'Theme', d.theme ],
+						[ 'Active plugins', String( d.plugin_count ) ],
+						[ 'WooCommerce', d.woocommerce ? 'Installed' : 'Not installed' ],
+						[ 'Site identity', d.identity_mirror ? 'Identity Mirror' : 'Native fields' ],
+						[ 'Breakpoints', d.breakpoint_mode ? d.breakpoint_mode : 'Not set' ],
+						[ 'Homepage', d.front_page_title ? d.front_page_title : 'Not set' ]
+					];
+					var html = '<table class="ssw-summary-table">' + rows.map( function ( r ) {
+						return '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>';
+					} ).join( '' ) + '</table>';
+
+					html += '<p class="ssw-nav">';
+					html += '<a class="button button-primary" href="' + d.site_url + '" target="_blank"><span class="dashicons dashicons-admin-site-alt3"></span> View site</a>';
+					if ( d.front_page_id ) {
+						html += '<a class="button" href="' + adminUrl + 'post.php?post=' + d.front_page_id + '&action=elementor" target="_blank"><span class="dashicons dashicons-edit"></span> Edit homepage in Elementor</a>';
+					}
+					html += '<a class="button" href="' + adminUrl + 'plugins.php"><span class="dashicons dashicons-admin-plugins"></span> Plugins</a>';
+					if ( d.woocommerce ) {
+						html += '<a class="button" href="' + adminUrl + 'admin.php?page=wc-settings"><span class="dashicons dashicons-cart"></span> WooCommerce settings</a>';
+					}
+					html += '</p>';
+
+					box.innerHTML = html;
+				} );
 		}
 
 		goTo( 1 );
@@ -413,13 +519,33 @@ function ssw_render_page() {
 			document.getElementById( 'ssw-run-step2' ).disabled = ! e.target.checked;
 		} );
 
+		document.getElementById( 'ssw-skip-step2' ).addEventListener( 'click', function () {
+			write( 'Skipped wiping default content.', 'ok' );
+			goTo( 3 );
+		} );
+
 		document.getElementById( 'ssw-use-identity-mirror' ).addEventListener( 'change', function ( e ) {
 			document.getElementById( 'ssw-native-identity' ).style.display = e.target.checked ? 'none' : '';
 		} );
 
+		Array.prototype.forEach.call( document.querySelectorAll( 'input[name="ssw-woo"]' ), function ( r ) {
+			r.addEventListener( 'change', function () {
+				document.getElementById( 'ssw-shop-icons' ).style.display = ( '1' === this.value ) ? '' : 'none';
+			} );
+		} );
+
 		Array.prototype.forEach.call( document.querySelectorAll( 'input[name="ssw-bp-mode"]' ), function ( r ) {
 			r.addEventListener( 'change', function () {
-				document.getElementById( 'ssw-custom-bp' ).style.display = ( this.value === 'custom' && this.checked ) ? 'block' : ( this.checked ? 'none' : document.getElementById( 'ssw-custom-bp' ).style.display );
+				document.getElementById( 'ssw-custom-bp' ).style.display = ( this.value === 'custom' && this.checked ) ? 'grid' : ( this.checked ? 'none' : document.getElementById( 'ssw-custom-bp' ).style.display );
+			} );
+		} );
+
+		document.getElementById( 'ssw-copy-shortcode' ).addEventListener( 'click', function () {
+			var text = document.getElementById( 'ssw-shortcode-text' ).textContent;
+			var btn = this;
+			navigator.clipboard.writeText( text ).then( function () {
+				btn.textContent = 'Copied!';
+				setTimeout( function () { btn.textContent = 'Copy'; }, 1500 );
 			} );
 		} );
 
@@ -451,24 +577,116 @@ function ssw_render_page() {
 				} );
 		} );
 
-		function runStep4() {
-			var total = fixedPlugins.length;
+		[ 'grid', 'list' ].forEach( function ( type ) {
+			document.getElementById( 'ssw-upload-icon-' + type ).addEventListener( 'click', function () {
+				var input = document.getElementById( 'ssw-icon-' + type );
+				if ( ! input.files.length ) { write( 'choose an SVG file first', 'err' ); return; }
+				barStart( 'Uploading ' + type + ' icon…' );
+				var body = new FormData();
+				body.append( 'action', 'ssw_upload_shop_icon' );
+				body.append( 'nonce', nonce );
+				body.append( 'type', type );
+				body.append( 'icon', input.files[0] );
+				fetch( ajaxurl, { method: 'POST', credentials: 'same-origin', body: body } )
+					.then( function ( r ) { return r.json(); } )
+					.then( function ( json ) {
+						var payload = json.data || {};
+						write( payload.message, json.success ? 'ok' : 'err' );
+						barDone( json.success ? 'Done' : 'Failed' );
+					} );
+			} );
+		} );
+
+		function runStep1( confirmOverwrite ) {
+			var themeName = document.getElementById( 'ssw-theme-name' ).value;
+			return call( 'ssw_step1', {
+				theme_name: themeName,
+				confirm_overwrite: confirmOverwrite ? 1 : 0
+			} ).then( function ( json ) {
+				var payload = json && json.data ? json.data : {};
+				if ( json && ! json.success && payload.needs_confirmation ) {
+					if ( window.confirm( payload.message + '\n\nOK = overwrite it. Cancel = keep the existing theme and continue.' ) ) {
+						return runStep1( true );
+					}
+					return call( 'ssw_step1', { theme_name: themeName, keep_existing: 1 } );
+				}
+				return json;
+			} );
+		}
+
+		function runStep3( forceNew ) {
+			return call( 'ssw_step3', {
+				title: document.getElementById( 'ssw-home-title' ).value,
+				force_new: forceNew ? 1 : 0
+			} ).then( function ( json ) {
+				var payload = json && json.data ? json.data : {};
+				if ( json && ! json.success && payload.needs_confirmation ) {
+					if ( window.confirm( payload.message + '\n\nOK = keep it and continue. Cancel = create a new page instead.' ) ) {
+						write( 'Keeping existing homepage.', 'ok' );
+						return { success: true };
+					}
+					return runStep3( true );
+				}
+				return json;
+			} );
+		}
+
+		var step4Failed = [];
+
+		function installPluginSlugs( slugs ) {
+			var total = slugs.length;
 			var i = 0;
+			var failed = [];
 
 			function next() {
 				if ( i >= total ) {
-					barDone( 'Plugin stack installed (' + total + '/' + total + ')' );
-					return Promise.resolve( { success: true } );
+					return Promise.resolve( failed );
 				}
-				var slug = fixedPlugins[ i ];
+				var slug = slugs[ i ];
 				barSet( ( i / total ) * 100, 'Installing ' + slug + '… (' + ( i + 1 ) + '/' + total + ')' );
-				return call( 'ssw_step4_plugin', { slug: slug } ).then( function () {
+				return call( 'ssw_step4_plugin', { slug: slug } ).then( function ( json ) {
+					if ( ! json || ! json.success ) {
+						failed.push( slug );
+					}
 					i++;
 					return next();
 				} );
 			}
 
-			return next();
+			return next().then( function () { return failed; } );
+		}
+
+		function updateRetryButton() {
+			var btn = document.getElementById( 'ssw-retry-step4' );
+			if ( step4Failed.length ) {
+				btn.style.display = '';
+				btn.lastChild.textContent = ' Retry failed (' + step4Failed.length + ')';
+			} else {
+				btn.style.display = 'none';
+			}
+		}
+
+		document.getElementById( 'ssw-retry-step4' ).addEventListener( 'click', function () {
+			var btn = this;
+			btn.disabled = true;
+			barStart( 'Retrying ' + step4Failed.length + ' failed plugin(s)…' );
+			installPluginSlugs( step4Failed ).then( function ( failed ) {
+				step4Failed = failed;
+				updateRetryButton();
+				barDone( failed.length ? failed.length + ' still failing' : 'All retried plugins installed' );
+				btn.disabled = false;
+			} );
+		} );
+
+		function runStep4() {
+			return installPluginSlugs( fixedPlugins ).then( function ( failed ) {
+				step4Failed = failed;
+				updateRetryButton();
+				barDone( failed.length
+					? ( fixedPlugins.length - failed.length ) + '/' + fixedPlugins.length + ' installed, ' + failed.length + ' failed'
+					: 'Plugin stack installed (' + fixedPlugins.length + '/' + fixedPlugins.length + ')' );
+				return { success: true };
+			} );
 		}
 
 		document.querySelectorAll( 'button[data-step]' ).forEach( function ( btn ) {
@@ -487,7 +705,7 @@ function ssw_render_page() {
 
 				if ( step === 1 ) {
 					barStart( 'Generating theme from underscores.me & installing…' );
-					call( 'ssw_step1', { theme_name: document.getElementById( 'ssw-theme-name' ).value } ).then( advance );
+					runStep1( false ).then( advance );
 				} else if ( step === 2 ) {
 					barStart( 'Wiping plugins, posts & pages…' );
 					call( 'ssw_step2', {
@@ -496,13 +714,18 @@ function ssw_render_page() {
 					} ).then( advance );
 				} else if ( step === 3 ) {
 					barStart( 'Creating homepage…' );
-					call( 'ssw_step3', { title: document.getElementById( 'ssw-home-title' ).value } ).then( advance );
+					runStep3( false ).then( advance );
 				} else if ( step === 4 ) {
 					runStep4().then( advance );
 				} else if ( step === 5 ) {
 					var woo = document.querySelector( 'input[name="ssw-woo"]:checked' ).value;
 					barStart( '1' === woo ? 'Installing WooCommerce…' : 'Skipping WooCommerce…' );
-					call( 'ssw_step5', { install: woo } ).then( advance );
+					call( 'ssw_step5', { install: woo } ).then( function ( json ) {
+						if ( json && json.success && '1' === woo ) {
+							document.getElementById( 'ssw-shortcode-box' ).style.display = '';
+						}
+						advance( json );
+					} );
 				} else if ( step === 6 ) {
 					barStart( 'Applying Elementor site settings…' );
 					var mode = document.querySelector( 'input[name="ssw-bp-mode"]:checked' ).value;
@@ -562,7 +785,11 @@ function ssw_respond( $result ) {
 
 add_action( 'wp_ajax_ssw_step1', function () {
 	ssw_check_auth();
-	ssw_respond( SSW_Steps::install_theme( sanitize_text_field( wp_unslash( $_POST['theme_name'] ?? '' ) ) ) );
+	ssw_respond( SSW_Steps::install_theme(
+		sanitize_text_field( wp_unslash( $_POST['theme_name'] ?? '' ) ),
+		! empty( $_POST['confirm_overwrite'] ),
+		! empty( $_POST['keep_existing'] )
+	) );
 } );
 
 add_action( 'wp_ajax_ssw_step2', function () {
@@ -572,7 +799,10 @@ add_action( 'wp_ajax_ssw_step2', function () {
 
 add_action( 'wp_ajax_ssw_step3', function () {
 	ssw_check_auth();
-	ssw_respond( SSW_Steps::create_homepage( sanitize_text_field( wp_unslash( $_POST['title'] ?? '' ) ) ) );
+	ssw_respond( SSW_Steps::create_homepage(
+		sanitize_text_field( wp_unslash( $_POST['title'] ?? '' ) ),
+		! empty( $_POST['force_new'] )
+	) );
 } );
 
 add_action( 'wp_ajax_ssw_step4_plugin', function () {
@@ -617,4 +847,25 @@ add_action( 'wp_ajax_ssw_upload_plugin_zip', function () {
 	}
 
 	ssw_respond( SSW_Steps::install_uploaded_plugin_zip( $tmp ) );
+} );
+
+add_action( 'wp_ajax_ssw_upload_shop_icon', function () {
+	ssw_check_auth();
+
+	if ( empty( $_FILES['icon'] ) || UPLOAD_ERR_OK !== $_FILES['icon']['error'] ) {
+		wp_send_json_error( [ 'message' => 'Upload failed.' ] );
+	}
+
+	$tmp = $_FILES['icon']['tmp_name'];
+	if ( ! is_uploaded_file( $tmp ) ) {
+		wp_send_json_error( [ 'message' => 'Invalid upload.' ] );
+	}
+
+	$type = sanitize_key( $_POST['type'] ?? '' );
+	ssw_respond( SSW_Steps::upload_shop_icon( $type, $tmp ) );
+} );
+
+add_action( 'wp_ajax_ssw_get_summary', function () {
+	ssw_check_auth();
+	ssw_respond( SSW_Steps::get_summary() );
 } );
