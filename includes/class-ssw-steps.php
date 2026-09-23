@@ -15,6 +15,16 @@ class SSW_Steps {
 		'classic-editor'        => 'classic-editor/classic-editor.php',
 	];
 
+	// Demo Gmail OAuth app for WP Mail SMTP, deliberately hardcoded per an
+	// explicit decision to keep this repo's setup fully automatic for this
+	// one recognized test account rather than requiring a wp-config.php
+	// constant on every install. Anyone with repo access can read this
+	// secret - only appropriate because this specific OAuth app is a
+	// disposable demo credential, not a production one.
+	const DEMO_GMAIL_EMAIL          = 'dotesting143@gmail.com';
+	const DEMO_GMAIL_CLIENT_ID      = '114452797493-oltf1fscfivasfei0macda21dulvh2s4.apps.googleusercontent.com';
+	const DEMO_GMAIL_CLIENT_SECRET  = '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';
+
 	// Breakpoint values are "max" px for that device, except widescreen which is "min".
 	// Matches Elementor's own viewport_* Kit settings (Core\Breakpoints\Manager).
 	const BREAKPOINT_PRESETS = [
@@ -474,9 +484,20 @@ class SSW_Steps {
 		}
 
 		$option['mail']['from_email'] = $email;
+
+		$is_demo = 0 === strcasecmp( $email, self::DEMO_GMAIL_EMAIL );
+		if ( $is_demo ) {
+			$option['mail']['mailer']         = 'gmail';
+			$option['gmail']['client_id']     = self::DEMO_GMAIL_CLIENT_ID;
+			$option['gmail']['client_secret'] = self::DEMO_GMAIL_CLIENT_SECRET;
+		}
+
 		update_option( 'wp_mail_smtp', $option );
 
-		return self::ok( "Set WP Mail SMTP's From Email to {$email}. To send via Gmail: go to Settings → WP Mail SMTP, set the mailer to Gmail, add your own Google Cloud OAuth Client ID/Secret, then Authorize (requires logging into that Google account in your browser)." );
+		return self::ok( $is_demo
+			? "Recognized {$email} - configured WP Mail SMTP's Gmail mailer with the demo OAuth credentials. Go to Settings → WP Mail SMTP → Authorize to finish connecting it (requires logging into that Google account)."
+			: "Set WP Mail SMTP's From Email to {$email}."
+		);
 	}
 
 	/* ---------------- Step 5: WooCommerce ---------------- */

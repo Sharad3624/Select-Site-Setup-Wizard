@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Site Setup Wizard
  * Description: One-time first-run wizard: install a theme, wipe default content, install a fixed plugin stack, and configure Elementor's global layout/breakpoints.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: Site Setup Wizard
  * Requires PHP: 7.4
  */
@@ -291,7 +291,7 @@ function ssw_render_page() {
 			<div id="ssw-summary"><p>Loading summary&hellip;</p></div>
 
 			<p class="ssw-hint ssw-hint-strong"><span class="dashicons dashicons-email-alt"></span>
-				<span><strong>Finish email delivery:</strong> Step 4 set WP Mail SMTP's From Email if you entered one, but sending mail still needs a real mailer connected. Go to <strong>Settings &rarr; WP Mail SMTP</strong>, pick a mailer (Gmail, Outlook, SMTP, etc.), enter that provider's credentials, and click <strong>Authorize</strong> or <strong>Save</strong> &mdash; this step always needs your own credentials and, for OAuth mailers like Gmail, a live login in your browser, so it can't be automated by the wizard.</span>
+				<span><strong>Finish email delivery:</strong> Step 4 set WP Mail SMTP's From Email if you entered one. If that was the recognized demo test address, the Gmail mailer and OAuth credentials were also filled in automatically &mdash; go to <strong>Settings &rarr; WP Mail SMTP &rarr; Authorize</strong> and log into that Google account to finish connecting it. For any other address, pick a mailer (Gmail, Outlook, SMTP, etc.) under <strong>Settings &rarr; WP Mail SMTP</strong>, enter that provider's own credentials, and click <strong>Authorize</strong> or <strong>Save</strong> &mdash; that always needs your own credentials and, for OAuth mailers, a live login in your browser, so it can't be automated by the wizard.</span>
 			</p>
 
 			<p class="ssw-nav"><button class="button" data-back="6"><span class="dashicons dashicons-arrow-left-alt2"></span> Back</button></p>
