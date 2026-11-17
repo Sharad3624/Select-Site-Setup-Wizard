@@ -317,40 +317,82 @@ class SSW_Steps {
 
 	/* ---------------- Step 3: homepage ---------------- */
 
-	public static function create_homepage( $title, $force_new = false ) {
-		if ( ! $force_new ) {
-			$existing_id = (int) get_option( 'page_on_front' );
-			if ( 'page' === get_option( 'show_on_front' ) && $existing_id && get_post( $existing_id ) ) {
-				return [
-					'ok'                 => false,
-					'needs_confirmation' => true,
-					'message'            => 'A homepage is already set ("' . get_the_title( $existing_id ) . '", ID ' . $existing_id . ').',
-				];
-			}
+	public static function create_homepage( $title, $force_new = false, $keep_existing = false ) {
+		$existing_id  = (int) get_option( 'page_on_front' );
+		$has_homepage = 'page' === get_option( 'show_on_front' ) && $existing_id && 'page' === get_post_type( $existing_id );
+		if ( $has_homepage && ! $force_new && ! $keep_existing ) {
+			$result = self::fail( 'A homepage is already set ("' . get_the_title( $existing_id ) . '", ID ' . $existing_id . ').' );
+			$result['needs_confirmation'] = true;
+			return $result;
 		}
 
-		$title = $title ? sanitize_text_field( $title ) : 'Home';
+		$title    = trim( sanitize_text_field( $title ) );
+		$title    = $title ? $title : 'Home';
+		$keep     = $has_homepage && $keep_existing;
+		$page_id  = $keep ? $existing_id : 0;
+		$titles   = [ 'Thank You', '404', 'Terms and Conditions', 'Privacy Policy', 'Refund and Return Policy' ];
+		$messages = $keep ? [ "Kept the existing homepage (ID {$page_id})." ] : [];
+		$details  = [ 'page_id' => $page_id, 'pages' => [], 'created_page_ids' => [] ];
+		if ( ! $keep ) {
+			array_unshift( $titles, $title );
+		}
 
-		$page_id = wp_insert_post( [
-			'post_title'   => $title,
-			'post_type'    => 'page',
-			'post_status'  => 'publish',
-			'post_content' => '',
-		], true );
+		foreach ( array_unique( $titles ) as $page_title ) {
+			$existing = get_posts( [
+				'post_type'   => 'page',
+				'post_status' => 'any',
+				'title'       => $page_title,
+				'numberposts' => 1,
+			] );
+			$id = $existing ? $existing[0]->ID : wp_insert_post( [
+				'post_title'   => $page_title,
+				'post_type'    => 'page',
+				'post_status'  => 'publish',
+				'post_content' => '',
+			], true );
 
-		if ( is_wp_error( $page_id ) ) {
-			return self::fail( 'Could not create homepage: ' . $page_id->get_error_message() );
+			if ( is_wp_error( $id ) || ! $id ) {
+				return self::fail( implode( ' ', $messages ) . ' Could not create page "' . $page_title . '": ' . ( is_wp_error( $id ) ? $id->get_error_message() : 'unknown error' ), $details );
+			}
+			$details['pages'][ $page_title ] = (int) $id;
+			if ( ! $existing ) {
+				$details['created_page_ids'][] = (int) $id;
+			}
+			$messages[] = '"' . $page_title . '" ' . ( $existing ? 'already existed' : 'created' ) . " (ID {$id}).";
+			if ( ! $keep && $page_title === $title ) {
+				$page_id = (int) $id;
+				$details['page_id'] = $page_id;
+			}
+			if ( 'Privacy Policy' === $page_title ) {
+				update_option( 'wp_page_for_privacy_policy', (int) $id );
+			}
 		}
 
 		update_option( 'show_on_front', 'page' );
 		update_option( 'page_on_front', $page_id );
+		$messages[] = "Static front page set to ID {$page_id}.";
 
-		return self::ok( "Created page \"{$title}\" (ID {$page_id}) and set it as the static front page.", [ 'page_id' => $page_id ] );
+		return self::ok( implode( ' ', $messages ), $details );
 	}
 
 	/* ---------------- Step 4: fixed plugin stack (installed one at a time by JS, for progress) ---------------- */
 
 	public static function install_and_activate_wp_org_plugin( $slug ) {
+		$buffer_level = ob_get_level();
+		ob_start();
+		try {
+			return self::install_wp_org_plugin( $slug );
+		} catch ( \Throwable $error ) {
+			return self::fail( "{$slug}: install/activation failed - " . $error->getMessage() );
+		} finally {
+			// Plugin activation output (including displayed notices) must not precede AJAX JSON.
+			while ( ob_get_level() > $buffer_level ) {
+				ob_end_clean();
+			}
+		}
+	}
+
+	private static function install_wp_org_plugin( $slug ) {
 		self::ensure_upgrader_includes();
 
 		$plugin_file = self::find_installed_plugin_file( $slug );
@@ -365,7 +407,7 @@ class SSW_Steps {
 		] );
 
 		if ( is_wp_error( $api ) ) {
-			return [ 'ok' => false, 'message' => "{$slug}: lookup failed - " . $api->get_error_message() ];
+			return self::fail( "{$slug}: lookup failed - " . $api->get_error_message() );
 		}
 
 		$skin     = new Automatic_Upgrader_Skin();
@@ -373,20 +415,20 @@ class SSW_Steps {
 		$installed = $upgrader->install( $api->download_link );
 
 		if ( is_wp_error( $installed ) || ! $installed ) {
-			return [ 'ok' => false, 'message' => "{$slug}: install failed - " . self::skin_failure_reason( $installed, $skin ) ];
+			return self::fail( "{$slug}: install failed - " . self::skin_failure_reason( $installed, $skin ) );
 		}
 
 		$plugin_file = $upgrader->plugin_info();
 		if ( ! $plugin_file ) {
-			return [ 'ok' => false, 'message' => "{$slug}: installed but couldn't determine plugin file" ];
+			return self::fail( "{$slug}: installed but couldn't determine plugin file" );
 		}
 
 		$activated = activate_plugin( $plugin_file );
 		if ( is_wp_error( $activated ) ) {
-			return [ 'ok' => false, 'message' => "{$slug}: activation failed - " . $activated->get_error_message() ];
+			return self::fail( "{$slug}: activation failed - " . $activated->get_error_message() );
 		}
 
-		return [ 'ok' => true, 'message' => "{$slug}: installed and activated ({$plugin_file})." ];
+		return self::ok( "{$slug}: installed and activated ({$plugin_file})." );
 	}
 
 	/**
@@ -408,7 +450,7 @@ class SSW_Steps {
 			if ( ! $activation['ok'] ) {
 				return $activation;
 			}
-			return [ 'ok' => true, 'message' => "{$slug}: already installed ({$installed_version}) - couldn't check wordpress.org for an update (" . $api->get_error_message() . ')' . $activation['suffix'] ];
+			return self::ok( "{$slug}: already installed ({$installed_version}) - couldn't check wordpress.org for an update (" . $api->get_error_message() . ')' . $activation['suffix'] );
 		}
 
 		$latest_version = $api->version ?? '';
@@ -425,7 +467,7 @@ class SSW_Steps {
 			$upgraded = $upgrader->install( $api->download_link, [ 'overwrite_package' => true ] );
 
 			if ( is_wp_error( $upgraded ) || ! $upgraded ) {
-				return [ 'ok' => false, 'message' => "{$slug}: update {$installed_version} \u{2192} {$latest_version} failed - " . self::skin_failure_reason( $upgraded, $skin ) ];
+				return self::fail( "{$slug}: update {$installed_version} \u{2192} {$latest_version} failed - " . self::skin_failure_reason( $upgraded, $skin ) );
 			}
 
 			$activation = self::ensure_plugin_active( $slug, $plugin_file );
@@ -433,14 +475,14 @@ class SSW_Steps {
 				return $activation;
 			}
 
-			return [ 'ok' => true, 'message' => "{$slug}: updated {$installed_version} \u{2192} {$latest_version}." . $activation['suffix'] ];
+			return self::ok( "{$slug}: updated {$installed_version} \u{2192} {$latest_version}." . $activation['suffix'] );
 		}
 
 		$activation = self::ensure_plugin_active( $slug, $plugin_file );
 		if ( ! $activation['ok'] ) {
 			return $activation;
 		}
-		return [ 'ok' => true, 'message' => "{$slug}: already up to date ({$installed_version})." . $activation['suffix'] ];
+		return self::ok( "{$slug}: already up to date ({$installed_version})." . $activation['suffix'] );
 	}
 
 	private static function ensure_plugin_active( $slug, $plugin_file ) {
@@ -449,7 +491,7 @@ class SSW_Steps {
 		}
 		$activated = activate_plugin( $plugin_file );
 		if ( is_wp_error( $activated ) ) {
-			return [ 'ok' => false, 'message' => "{$slug}: activation failed - " . $activated->get_error_message() ];
+			return self::fail( "{$slug}: activation failed - " . $activated->get_error_message() );
 		}
 		return [ 'ok' => true, 'suffix' => ' Activated.' ];
 	}
@@ -715,10 +757,7 @@ class SSW_Steps {
 	 * isn't active or there's no Kit yet.
 	 */
 	public static function get_current_kit_settings() {
-		if ( ! did_action( 'elementor/loaded' ) && ! class_exists( '\Elementor\Plugin' ) ) {
-			return null;
-		}
-		if ( empty( \Elementor\Plugin::$instance->kits_manager ) ) {
+		if ( ! class_exists( '\Elementor\Plugin' ) || ! isset( \Elementor\Plugin::$instance->kits_manager ) ) {
 			return null;
 		}
 		$kit = \Elementor\Plugin::$instance->kits_manager->get_active_kit();
@@ -764,7 +803,7 @@ class SSW_Steps {
 	}
 
 	public static function elementor_settings( $args ) {
-		if ( ! did_action( 'elementor/loaded' ) && ! class_exists( '\Elementor\Plugin' ) ) {
+		if ( ! class_exists( '\Elementor\Plugin' ) || ! isset( \Elementor\Plugin::$instance->kits_manager ) ) {
 			return self::fail( 'Elementor is not active; install/activate it in Step 4 first.' );
 		}
 
@@ -882,7 +921,8 @@ class SSW_Steps {
 		$tb = self::create_blank_header_footer();
 		$messages[] = $tb['message'];
 
-		return self::ok( implode( ' ', $messages ), [ 'settings' => $settings ] );
+		$details = [ 'settings' => $settings, 'templates' => $tb['details'] ];
+		return $tb['ok'] ? self::ok( implode( ' ', $messages ), $details ) : self::fail( implode( ' ', $messages ), $details );
 	}
 
 	private static function resolve_container_width( $input ) {
@@ -911,104 +951,94 @@ class SSW_Steps {
 		return in_array( $unit, $allowed, true ) ? $unit : $fallback;
 	}
 
-	private static function detect_elementor_pro() {
+	private static function detect_proelements() {
 		return class_exists( '\ElementorPro\Plugin' )
 			|| class_exists( '\ProElements\Plugin' )
 			|| defined( 'ELEMENTOR_PRO_VERSION' )
 			|| defined( 'PROELEMENTS_VERSION' );
 	}
 
-	/**
-	 * Creates blank "Header" and "Footer" Theme Builder templates. Safe to call
-	 * repeatedly - skips creation if one with that title/type already exists.
-	 *
-	 * Note: with Elementor Pro/ProElements detected, this also attempts to set
-	 * the template's display condition to "Entire Site" via `_elementor_conditions`.
-	 * That specific meta format is not verifiable without Pro installed (it's a
-	 * licensed plugin, no public source to check against) - if the templates
-	 * don't show up automatically after activating Pro, open each one in
-	 * Theme Builder and set its condition to Entire Site manually.
-	 */
+	/** Creates or repairs the two library documents without replacing their content. */
 	private static function create_blank_header_footer() {
-		if ( ! post_type_exists( 'elementor_library' ) ) {
-			return [ 'message' => 'Skipped blank Header/Footer templates - Elementor library post type not available.' ];
+		if ( ! post_type_exists( 'elementor_library' ) || ! taxonomy_exists( 'elementor_library_type' ) ) {
+			return self::ok( 'Skipped blank Header/Footer templates - Elementor library not available.' );
 		}
 
-		$has_pro = self::detect_elementor_pro();
-		$created = [];
-		$existed = [];
+		$documents            = \Elementor\Plugin::$instance->documents;
+		$module_class         = '\ElementorPro\Modules\ThemeBuilder\Module';
+		$theme_document_class = '\ElementorPro\Modules\ThemeBuilder\Documents\Theme_Document';
+		$cache_class          = '\ElementorPro\Modules\ThemeBuilder\Classes\Conditions_Cache';
+		$conditions_class     = '\ElementorPro\Modules\ThemeBuilder\Classes\Conditions_Manager';
+		$has_theme_builder = self::detect_proelements()
+			&& class_exists( $module_class ) && class_exists( $theme_document_class )
+			&& class_exists( $cache_class ) && class_exists( $conditions_class );
+		if ( $has_theme_builder ) {
+			foreach ( [ 'header', 'footer' ] as $type ) {
+				$document_class = $documents->get_document_type( $type, false );
+				if ( ! $document_class || ! class_exists( $document_class ) || ! is_subclass_of( $document_class, $theme_document_class ) ) {
+					$has_theme_builder = false;
+					break;
+				}
+			}
+		}
+		$messages   = [];
+		$ids        = [];
+		$conditions = $has_theme_builder ? $module_class::instance()->get_conditions_manager() : null;
 
 		foreach ( [ 'header', 'footer' ] as $type ) {
 			$title = ucfirst( $type );
-
 			$existing = get_posts( [
-				'post_type'      => 'elementor_library',
-				'post_status'    => 'any',
-				'numberposts'    => 1,
-				'tax_query'      => [ [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
-					'taxonomy' => 'elementor_library_type',
-					'field'    => 'slug',
-					'terms'    => $type,
-				] ],
+				'post_type'   => 'elementor_library',
+				'post_status' => 'any',
+				'title'       => $title,
+				'numberposts' => 1,
 			] );
-
-			if ( $existing ) {
-				$existed[] = $title;
-				continue;
-			}
-
-			$post_id = wp_insert_post( [
+			$post_id = $existing ? $existing[0]->ID : wp_insert_post( [
 				'post_title'  => $title,
 				'post_type'   => 'elementor_library',
 				'post_status' => 'publish',
+				'meta_input'  => [
+					'_elementor_template_type' => $type,
+					'_elementor_edit_mode'     => 'builder',
+					'_elementor_data'          => wp_slash( '[]' ),
+				],
 			], true );
-
-			if ( is_wp_error( $post_id ) ) {
-				continue;
+			if ( is_wp_error( $post_id ) || ! $post_id ) {
+				return self::fail( "Could not create {$title} template: " . ( is_wp_error( $post_id ) ? $post_id->get_error_message() : 'unknown error' ), $ids );
 			}
 
-			update_post_meta( $post_id, '_elementor_data', wp_slash( '[]' ) );
-			update_post_meta( $post_id, '_elementor_edit_mode', 'builder' );
-			if ( defined( 'ELEMENTOR_VERSION' ) ) {
+			if ( ! $existing && defined( 'ELEMENTOR_VERSION' ) ) {
 				update_post_meta( $post_id, '_elementor_version', ELEMENTOR_VERSION );
 			}
-			wp_set_object_terms( $post_id, $type, 'elementor_library_type' );
 
-			if ( $has_pro ) {
-				// Pro/ProElements resolves a post's Document class from this meta
-				// (Documents_Manager::get_doc_type_by_id()); without it the post falls
-				// back to the generic "library" document, isn't a Theme_Document, and
-				// silently never enters the Theme Builder at all - conditions or not.
-				update_post_meta( $post_id, '_elementor_template_type', $type );
-				update_post_meta( $post_id, '_elementor_conditions', [ 'include/general' ] );
+			// Set the type even without ProElements so a later run can wire the same documents.
+			update_post_meta( $post_id, '_elementor_template_type', $type );
+			update_post_meta( $post_id, '_elementor_edit_mode', 'builder' );
+			$terms = wp_set_object_terms( $post_id, $type, 'elementor_library_type' );
+			if ( is_wp_error( $terms ) ) {
+				return self::fail( "Could not assign {$title} template type: " . $terms->get_error_message(), $ids );
 			}
+			$ids[ $type ] = (int) $post_id;
 
-			$created[] = $title;
-		}
-
-		// Pro/ProElements caches the location->template map in a separate option
-		// (Theme_Builder\Classes\Conditions_Cache, option "elementor_pro_theme_builder_conditions")
-		// rather than reading `_elementor_conditions` live, so the condition set above
-		// won't take effect until that cache is rebuilt.
-		if ( $has_pro && $created ) {
-			$cache_class = '\ElementorPro\Modules\ThemeBuilder\Classes\Conditions_Cache';
-			if ( class_exists( $cache_class ) ) {
-				( new $cache_class() )->regenerate();
+			if ( $has_theme_builder ) {
+				$document = $documents->get( $post_id, false );
+				if ( ! $document instanceof $theme_document_class || $type !== $document->get_location() ) {
+					return self::fail( "Could not register {$title} as a ProElements Theme Builder document.", $ids );
+				}
+				// ProElements serializes this API input to ['include/general'] and rebuilds its cache.
+				$conditions->save_conditions( $post_id, [ [ 'type' => 'include', 'name' => 'general' ] ] );
+				if ( [ 'include/general' ] !== get_post_meta( $post_id, '_elementor_conditions', true ) ) {
+					return self::fail( "Could not set {$title} to display on the Entire Site.", $ids );
+				}
 			}
+			$messages[] = $title . ( $existing ? ' already existed; repaired its template type' : ' template created' ) . " (ID {$post_id}).";
 		}
 
-		$parts = [];
-		if ( $created ) {
-			$parts[] = 'created blank ' . implode( ' & ', $created ) . ' template(s) in Theme Builder';
-		}
-		if ( $existed ) {
-			$parts[] = implode( ' & ', $existed ) . ' already existed, left untouched';
-		}
-		$suffix = $has_pro
-			? ' (Elementor Pro/ProElements detected - set to display on the entire site, verified against ProElements\' own Conditions_Manager/Conditions_Cache source).'
-			: ' (Elementor Pro/ProElements not detected - these are blank saved templates only; install Pro and set each one\'s condition to Entire Site to have them apply automatically).';
+		$messages[] = $has_theme_builder
+			? 'ProElements detected: Header and Footer are Theme Builder documents assigned to their locations on the Entire Site.'
+			: 'ProElements Theme Builder is unavailable: Header and Footer are saved library templates only. Upload and activate a compatible ProElements ZIP in Step 4, then rerun Step 6 to apply them to the Entire Site.';
 
-		return [ 'message' => ucfirst( implode( '; ', $parts ) ) . $suffix ];
+		return self::ok( implode( ' ', $messages ), $ids );
 	}
 
 	private static function resolve_breakpoints( $args ) {
@@ -1033,7 +1063,7 @@ class SSW_Steps {
 		return null;
 	}
 
-	/* ---------------- Manual zip upload (Elementor Pro / ProElements) ---------------- */
+	/* ---------------- Manual zip upload (optional ProElements) ---------------- */
 
 	public static function install_uploaded_plugin_zip( $tmp_path ) {
 		self::ensure_upgrader_includes();

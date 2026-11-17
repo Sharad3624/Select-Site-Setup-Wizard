@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Site Setup Wizard
  * Description: One-time first-run wizard: install a theme, wipe default content, install a fixed plugin stack, and configure Elementor's global layout/breakpoints.
- * Version: 1.2.1
+ * Version: 1.2.2
  * Author: Sharad Gupta
  * Requires PHP: 7.4
  */
@@ -127,11 +127,12 @@ function ssw_render_page() {
 		</div>
 
 		<div class="ssw-panel" data-panel="3" style="display:none;">
-			<h2><span class="dashicons dashicons-admin-home"></span> Step 3 &mdash; Create &amp; set homepage</h2>
+			<h2><span class="dashicons dashicons-admin-home"></span> Step 3 &mdash; Create homepage &amp; standard pages</h2>
 			<p class="ssw-field">
-				<label for="ssw-home-title">Page title</label>
+				<label for="ssw-home-title">Homepage title</label>
 				<input type="text" id="ssw-home-title" value="Home" />
 			</p>
+			<p class="ssw-hint">Also creates Thank You, 404, Terms and Conditions, Privacy Policy, and Refund and Return Policy as empty published pages. Existing titles are reused. Sets the homepage as the static front page and links Privacy Policy in Settings &rarr; Privacy.</p>
 			<p class="ssw-nav">
 				<button class="button" data-back="2"><span class="dashicons dashicons-arrow-left-alt2"></span> Back</button>
 				<button class="button button-primary button-hero" data-step="3"><span class="dashicons dashicons-plus-alt2"></span> Create &amp; continue</button>
@@ -146,8 +147,8 @@ function ssw_render_page() {
 				<span class="ssw-pill">Classic Editor</span>
 			</p>
 
-			<h3>Elementor Pro / ProElements (manual)</h3>
-			<p class="ssw-hint">Not on wordpress.org &mdash; <a href="https://proelements.org/" target="_blank" rel="noopener">proelements.org</a> requires a licensed download. Upload the zip here (optional, either before or after continuing):</p>
+			<h3>ProElements (optional manual upload)</h3>
+			<p class="ssw-hint">Not on wordpress.org &mdash; <a href="https://proelements.org/" target="_blank" rel="noopener">proelements.org</a> provides the free add-on. Upload its zip here after Elementor is installed. You can skip it and continue:</p>
 			<p class="ssw-field-row">
 				<input type="file" id="ssw-pro-zip" accept=".zip" />
 				<button class="button" id="ssw-upload-pro"><span class="dashicons dashicons-upload"></span> Upload &amp; Install</button>
@@ -277,7 +278,7 @@ function ssw_render_page() {
 				<p class="ssw-field"><label>Unit</label><?php ssw_unit_select( 'ssw-pad-unit', $pad['unit'] ?? 'px' ); ?></p>
 			</div>
 
-			<p class="ssw-hint ssw-hint-strong"><span class="dashicons dashicons-info-outline"></span> Default page layout will be set to Elementor Full Width, and blank Header/Footer Theme Builder templates will be created automatically.</p>
+			<p class="ssw-hint ssw-hint-strong"><span class="dashicons dashicons-info-outline"></span> Sets Elementor Full Width and creates blank Header/Footer library templates. With compatible ProElements active, assigns them to the Header/Footer Theme Builder locations on the Entire Site.</p>
 
 			<p class="ssw-nav">
 				<button class="button" data-back="5"><span class="dashicons dashicons-arrow-left-alt2"></span> Back</button>
@@ -526,7 +527,7 @@ function ssw_render_page() {
 					return json;
 				} )
 				.catch( function ( e ) {
-					write( 'request error: ' + e.message, 'err' );
+					write( ( data.slug ? data.slug + ': ' : '' ) + 'request error: ' + e.message, 'err' );
 				} );
 		}
 
@@ -629,16 +630,16 @@ function ssw_render_page() {
 			} );
 		}
 
-		function runStep3( forceNew ) {
+		function runStep3( forceNew, keepExisting ) {
 			return call( 'ssw_step3', {
 				title: document.getElementById( 'ssw-home-title' ).value,
-				force_new: forceNew ? 1 : 0
+				force_new: forceNew ? 1 : 0,
+				keep_existing: keepExisting ? 1 : 0
 			} ).then( function ( json ) {
 				var payload = json && json.data ? json.data : {};
 				if ( json && ! json.success && payload.needs_confirmation ) {
-					if ( window.confirm( payload.message + '\n\nOK = keep it and continue. Cancel = create a new page instead.' ) ) {
-						write( 'Keeping existing homepage.', 'ok' );
-						return { success: true };
+					if ( window.confirm( payload.message + '\n\nOK = keep it and create missing standard pages. Cancel = use the requested homepage title instead.' ) ) {
+						return runStep3( false, true );
 					}
 					return runStep3( true );
 				}
@@ -694,6 +695,7 @@ function ssw_render_page() {
 		} );
 
 		function runStep4() {
+			write( 'ProElements is optional and handled separately; installing the seven WordPress.org plugins independently.', 'ok' );
 			return installPluginSlugs( fixedPlugins ).then( function ( failed ) {
 				step4Failed = failed;
 				updateRetryButton();
@@ -735,7 +737,7 @@ function ssw_render_page() {
 						confirmed: document.getElementById( 'ssw-confirm-wipe' ).checked ? 1 : 0
 					} ).then( advance );
 				} else if ( step === 3 ) {
-					barStart( 'Creating homepage…' );
+					barStart( 'Creating homepage & standard pages…' );
 					runStep3( false ).then( advance );
 				} else if ( step === 4 ) {
 					runStep4().then( advance );
@@ -823,7 +825,8 @@ add_action( 'wp_ajax_ssw_step3', function () {
 	ssw_check_auth();
 	ssw_respond( SSW_Steps::create_homepage(
 		sanitize_text_field( wp_unslash( $_POST['title'] ?? '' ) ),
-		! empty( $_POST['force_new'] )
+		! empty( $_POST['force_new'] ),
+		! empty( $_POST['keep_existing'] )
 	) );
 } );
 

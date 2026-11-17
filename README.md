@@ -1,6 +1,6 @@
 # Site Setup Wizard
 
-A step-by-step WordPress admin wizard (**Tools → Site Setup Wizard**) that automates first-run setup on a fresh install: theme, content wipe, homepage, a fixed plugin stack, WooCommerce, and Elementor site settings.
+A step-by-step WordPress admin wizard (**Tools → Site Setup Wizard**) that automates first-run setup on a fresh install: theme, content wipe, homepage and standard pages, a fixed plugin stack, WooCommerce, and Elementor site settings.
 
 ## Contents
 
@@ -16,7 +16,7 @@ A step-by-step WordPress admin wizard (**Tools → Site Setup Wizard**) that aut
 
 - WordPress, **single-site only**. The wizard refuses to run on multisite: it manages the shared `wp-content/plugins` directory, and `manage_options` alone doesn't map onto the network-level `install_plugins` / `activate_plugins` / `delete_plugins` capabilities multisite actually needs for that.
 - An admin user (`manage_options`).
-- Outbound HTTPS access from the server to `underscores.me`, `api.wordpress.org` / `downloads.wordpress.org`, and (if using Identity Mirror or installing Elementor Pro's Theme Builder pieces) `api.github.com` / `codeload.github.com`.
+- Outbound HTTPS access from the server to `underscores.me`, `api.wordpress.org` / `downloads.wordpress.org`, and (if using Identity Mirror) `api.github.com` / `codeload.github.com`.
 - PHP 7.4+.
 
 ## Installation
@@ -52,14 +52,16 @@ Enter a theme name and continue. The wizard POSTs to `underscores.me`'s generato
 
 This requires an explicit **"Yes, I understand this will delete existing content"** confirmation — enforced both by disabling the button client-side *and* by refusing the request server-side if the confirmation flag isn't set, so it can't be triggered by accident (e.g. a stray API call) even if you already have a valid session.
 
-### Step 3 — Create & set homepage
-Creates a new published page with the title you give it and sets it as the static front page (Settings → Reading).
+### Step 3 — Create homepage & standard pages
+Creates empty, published WordPress Pages: Home (or your custom homepage title), Thank You, 404, Terms and Conditions, Privacy Policy, and Refund and Return Policy. Each title is checked first: existing pages are reused without changing their content or status. The log reports each page as created or already existed; the result includes page IDs and the IDs created during this run.
+
+Sets Home as the static front page (Settings → Reading) and links Privacy Policy in Settings → Privacy. If a homepage is already set, the confirmation still lets you keep it or select a page with the requested title; the five extra pages are created either way. Repeating Step 3 does not create duplicate titles. The 404 page is a normal page; it does not replace the theme's error handler.
 
 ### Step 4 — Install plugin stack
 Installs and activates, one at a time with a progress bar:
 Elementor, WP Mail SMTP, Yoast SEO, Duplicate Page, Secure Custom Fields, Permalink Manager, Classic Editor — all from wordpress.org via WordPress's own plugin installer APIs.
 
-**Elementor Pro / ProElements** isn't on wordpress.org (license-gated), so this step also offers a manual zip upload field — download it yourself from [proelements.org](https://proelements.org/) (or your Elementor Pro account) and upload it here.
+**ProElements is optional** and is never requested from WordPress.org. Download its free ZIP from [proelements.org](https://proelements.org/) and upload it manually after Elementor is installed. Use a ProElements release compatible with your WordPress and Elementor versions. Skipping it does not affect any of the seven plugins or WooCommerce. Each plugin has its own request and result; failed plugins can be retried, and the remaining installs continue. Installer/activation output is buffered so displayed PHP notices cannot corrupt the AJAX JSON; caught PHP errors are reported against the affected plugin.
 
 ### Step 5 — WooCommerce
 Yes installs and activates WooCommerce from wordpress.org; No skips it. Either way the wizard continues to Step 6.
@@ -72,7 +74,7 @@ If you install WooCommerce, the wizard also wires shop support into the **active
 - **Container width**: a responsive value per breakpoint tier (Widescreen/Desktop/Laptop/Tablet Landscape/Mobile), each with its own unit (px, %, em, rem, vw, custom). Devices not listed inherit the next-wider tier's value, matching Elementor's own responsive-control cascade.
 - **Container padding**: top/right/bottom/left with a selectable shared unit.
 - **Page layout**: sets the Kit's default page template to "Elementor Full Width."
-- **Header/Footer templates**: creates blank Header and Footer templates in Elementor's Theme Builder. If Elementor Pro/ProElements is active, they're also set to display site-wide ("Entire Site" condition); otherwise they're left as blank saved templates for you to wire up once Pro is installed.
+- **Header/Footer templates**: creates two `elementor_library` documents named Header and Footer, with the corresponding document meta and `elementor_library_type` taxonomy terms. With ProElements active, validates their registered Theme Builder document/location types, saves the Entire Site condition (`include/general`) through ProElements' conditions API, and rebuilds its conditions cache. They appear in Templates → Theme Builder → Header / Footer, outside WordPress Pages. Without ProElements, they remain saved library templates and the log explains the missing site-wide wiring. Activate ProElements in Step 4 and rerun Step 6 to wire the same templates. Repeated runs repair existing Header/Footer documents without replacing their content. Template creation/type/condition errors are reported as failures rather than silently skipped.
 
 ## Setting up WP Mail SMTP (Gmail)
 
@@ -99,8 +101,20 @@ Check that `wp-content/upgrade/`, `wp-content/plugins/`, `wp-content/themes/`, a
 chmod -R g+w wp-content/upgrade wp-content/plugins wp-content/themes wp-content/uploads
 ```
 
+**Skipping ProElements causes plugin-stack errors.**
+ProElements is not a dependency of Steps 4 or 5. Check the named plugin's individual log entry (download, filesystem access, activation, or PHP error), then use Retry failed. Displayed activation notices are discarded from the AJAX output; server-side PHP logging still follows your WordPress configuration. Skipping the optional ZIP does not count as an install failure and does not block continuing.
+
+**A newer plugin release requires a newer WordPress version.**
+The wizard uses the latest WordPress.org releases and does not bypass their version requirements. An incompatible plugin is reported individually; the others continue. Manual ProElements uploads also need to match your WordPress/Elementor versions. If its Theme Builder cannot load, Step 6 leaves saved library templates and explains that site-wide wiring is deferred.
+
+**Header/Footer are saved templates or don't appear in Theme Builder.**
+Activate Elementor and ProElements, then rerun Step 6. Earlier versions omitted `_elementor_template_type` when ProElements was absent and skipped those documents on subsequent runs; this version repairs them and applies the Entire Site condition through ProElements' API. The log confirms whether Theme Builder wiring was applied or deferred. Header and Footer are library posts, never Pages.
+
 **Header/Footer Theme Builder templates don't show up on the front end.**
-This requires Elementor Pro/ProElements *and* a theme that either natively supports Elementor's theme-builder hooks (e.g. Hello Elementor) or gets patched by Pro's own compatibility shim. A freshly generated `_s`/underscores.me theme has no built-in awareness of Elementor at all; if the header/footer don't appear after Step 6, try switching to the Hello Elementor theme.
+This requires ProElements *and* a theme that supports Elementor's Theme Builder locations (e.g. Hello Elementor) or works with ProElements' compatibility shim. A freshly generated `_s`/underscores.me theme has no built-in awareness of Elementor; if correctly wired templates still don't appear after Step 6, test with Hello Elementor.
+
+**The extra pages are missing after choosing to keep the homepage.**
+Rerun Step 3 and choose to keep it. That choice now sends a server request to create any missing standard pages and link Privacy Policy, while preserving the existing homepage.
 
 **Every URL 404s (or resolves to something with "indexphp", no dot, in it) after installing Permalink Manager.**
 Step 2 already switches the site to a clean `/%postname%/` permalink structure and writes `.htaccess` before Step 4 installs Permalink Manager, specifically to prevent this. If you still hit it — e.g. you ran Step 4/5 out of order, or re-ran the wizard on a site that already had this problem once — Permalink Manager caches every URL it generates in the `permalink-manager-uris` option, keyed by post ID, and that cache is **not** cleared by deactivating or even deleting the plugin. Step 2 now also clears that option on every run, but if you hit this outside the wizard: `wp option delete permalink-manager-uris` (or delete it via a database tool), then reload the affected page.
@@ -126,3 +140,22 @@ site-setup-wizard/
 │       └── shop-archive.js
 └── README.md
 ```
+
+## Version 1.2.2
+
+- Independent WordPress.org installs with buffered activation output and per-plugin PHP error reporting; ProElements remains optional.
+- Header/Footer document-type repair and verified ProElements Theme Builder locations/Entire Site conditions, including reruns after activating ProElements.
+- Duplicate-safe standard pages in Step 3, including the keep-homepage path and Privacy Policy option.
+
+Regression checks require a disposable WordPress install with Elementor and, for the Theme Builder checks, ProElements. Enable `define( 'SSW_TEST_SITE', true );` in that disposable site's `wp-config.php`, activate this plugin and Elementor, then run:
+
+```bash
+wp eval-file wp-content/plugins/site-setup-wizard/tests/regression.php pages
+wp eval-file wp-content/plugins/site-setup-wizard/tests/regression.php without-pro
+wp eval-file wp-content/plugins/site-setup-wizard/tests/regression.php plugins
+# Activate a compatible ProElements ZIP and open wp-admin once to finish its migrations:
+wp eval-file wp-content/plugins/site-setup-wizard/tests/regression.php with-pro
+node wp-content/plugins/site-setup-wizard/tests/wizard.js
+```
+
+The page checks delete and recreate the named pages; never run them on a real site. The plugin checks install the seven-plugin stack. Verified with PHP 8.2 using disposable SQLite-backed installs: WordPress 6.8 / Elementor 3.33.1 / ProElements 3.33.1, and WordPress 7.1.4 / Elementor 4.4.1 / ProElements 4.4.0. These checks do not replace browser testing on your server.
